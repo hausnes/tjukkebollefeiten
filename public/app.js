@@ -2,6 +2,7 @@ const state = {
 	data: [],
 	weightChart: null,
 	deltaChart: null,
+	canWrite: false,
 };
 
 const el = {
@@ -13,6 +14,8 @@ const el = {
 	worstPeriodText: document.getElementById("worstPeriodText"),
 	dailyComment: document.getElementById("dailyComment"),
 	motivationBanner: document.getElementById("motivationBanner"),
+	entryPanel: document.getElementById("entryPanel"),
+	readonlyNotice: document.getElementById("readonlyNotice"),
 	form: document.getElementById("entryForm"),
 	dateInput: document.getElementById("dateInput"),
 	weightInput: document.getElementById("weightInput"),
@@ -25,6 +28,10 @@ async function init() {
 	setDefaultDate();
 
 	try {
+		const currentUser = await fetchCurrentUser();
+		state.canWrite = Boolean(currentUser.canWrite);
+		applyWriteAccess(currentUser);
+
 		state.data = await fetchAndParseCsv("/api/data");
 		renderAll();
 		bindEvents();
@@ -35,10 +42,52 @@ async function init() {
 }
 
 function bindEvents() {
+	if (!state.canWrite) {
+		return;
+	}
+
 	el.form.addEventListener("submit", (event) => {
 		event.preventDefault();
 		addEntry();
 	});
+}
+
+async function fetchCurrentUser() {
+	const response = await fetch("/api/me");
+	if (!response.ok) {
+		throw new Error(`HTTP ${response.status} ved henting av brukerinfo`);
+	}
+
+	return response.json();
+}
+
+function applyWriteAccess(user) {
+	if (state.canWrite) {
+		if (el.readonlyNotice) {
+			el.readonlyNotice.setAttribute("hidden", "");
+		}
+		return;
+	}
+
+	if (el.readonlyNotice) {
+		el.readonlyNotice.removeAttribute("hidden");
+	}
+
+	if (el.dateInput) {
+		el.dateInput.disabled = true;
+	}
+
+	if (el.weightInput) {
+		el.weightInput.disabled = true;
+	}
+
+	const submitButton = el.form ? el.form.querySelector('button[type="submit"]') : null;
+	if (submitButton) {
+		submitButton.disabled = true;
+		submitButton.textContent = "Kun visning for gjest";
+	}
+
+	el.formFeedback.textContent = `Innlogget som ${user.role === "viewer" ? "gjest" : "bruker"}. Registrering er deaktivert.`;
 }
 
 async function fetchAndParseCsv(path) {
@@ -72,6 +121,11 @@ function parseCsvLine(line) {
 }
 
 async function addEntry() {
+	if (!state.canWrite) {
+		el.formFeedback.textContent = "Denne brukeren har ikke tilgang til å registrere nye verdier.";
+		return;
+	}
+
 	const date = el.dateInput.value;
 	const weight = Number(el.weightInput.value);
 

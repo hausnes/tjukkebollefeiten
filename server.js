@@ -6,9 +6,13 @@ const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const PASSWORDS = {
+	editor: "favorittsvigerson",
+	viewer: "gjest",
+};
 
-if (!process.env.APP_PASSWORD || !process.env.SESSION_SECRET) {
-	console.error("Feil: APP_PASSWORD og SESSION_SECRET må settes i .env-filen.");
+if (!process.env.SESSION_SECRET) {
+	console.error("Feil: SESSION_SECRET må settes i .env-filen.");
 	process.exit(1);
 }
 
@@ -36,6 +40,11 @@ function requireAuth(req, res, next) {
 	res.redirect("/login");
 }
 
+function requireEditor(req, res, next) {
+	if (req.session.role === "editor") return next();
+	return res.status(403).json({ error: "Du har ikke tilgang til å registrere nye verdier" });
+}
+
 app.get("/login", (req, res) => {
 	if (req.session.authenticated) return res.redirect("/");
 	res.sendFile(path.join(PUBLIC_DIR, "login.html"));
@@ -43,8 +52,15 @@ app.get("/login", (req, res) => {
 
 app.post("/login", (req, res) => {
 	const { password } = req.body;
-	if (typeof password === "string" && password === process.env.APP_PASSWORD) {
+	if (typeof password === "string" && password === PASSWORDS.editor) {
 		req.session.authenticated = true;
+		req.session.role = "editor";
+		return res.redirect("/");
+	}
+
+	if (typeof password === "string" && password === PASSWORDS.viewer) {
+		req.session.authenticated = true;
+		req.session.role = "viewer";
 		return res.redirect("/");
 	}
 	res.redirect("/login?feil=1");
@@ -73,7 +89,14 @@ app.get("/api/data", (req, res) => {
 	}
 });
 
-app.post("/api/entry", (req, res) => {
+app.get("/api/me", (req, res) => {
+	res.json({
+		role: req.session.role || "viewer",
+		canWrite: req.session.role === "editor",
+	});
+});
+
+app.post("/api/entry", requireEditor, (req, res) => {
 	const { date, weight } = req.body;
 
 	// Validate input

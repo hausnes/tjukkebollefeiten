@@ -71,10 +71,11 @@
             <canvas id="deltaChart" aria-label="Graf over daglig vektendring" role="img"></canvas>
         </section>
 
-        <section class="entry-panel">
+        <section id="entryPanel" class="entry-panel">
             <div class="panel-head">
                 <h2>Logg ny måling</h2>
                 <p>Nye målinger lagres direkte til serveren.</p>
+                <p id="readonlyNotice" hidden>Du er logget inn som gjest og kan kun se resultater.</p>
             </div>
             <form id="entryForm" class="entry-form">
                 <label>
