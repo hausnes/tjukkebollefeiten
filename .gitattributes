@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Skript som skal køyre i Linux-containeren må ha LF-linjeskift
+*.sh text eol=lf
+docker/* text eol=lf
