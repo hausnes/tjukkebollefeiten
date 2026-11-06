@@ -1,0 +1,17 @@
+# Bruk denne på NAS-en (Synology Container Manager → Prosjekt → Opprett, og lim inn).
+services:
+  tjukkebollefeiten:
+    image: ghcr.io/hausnes/tjukkebollefeiten:latest
+    # Hent alltid nyaste versjon ved start, så «Stop → Build» i Container Manager er nok for å oppdatere
+    pull_policy: always
+    container_name: tjukkebollefeiten
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Databasen og innloggingsnøkkelen. Mappa må finnast på NAS-en før prosjektet startar.
+      # Ta med denne mappa i Hyper Backup.
+      - /volume1/docker/tjukkebollefeiten:/data
+    environment:
+      # Appen står bak NAS-en sin omvende proxy (HTTPS). Set til 0 viss du berre brukar http://<nas-ip>:3000
+      TRUST_PROXY: 1

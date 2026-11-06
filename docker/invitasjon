@@ -1,0 +1,6 @@
+#!/bin/sh
+# Snarveg i containeren: «invitasjon», «invitasjon 3» eller «invitasjon liste».
+# Køyrer alltid som «node», så databasefilene ikkje blir eigde av root.
+cd /app
+if [ "$(id -u)" = "0" ]; then exec su-exec node node scripts/invitasjon.js "$@"; fi
+exec node scripts/invitasjon.js "$@"

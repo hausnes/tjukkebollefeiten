@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="nn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lag brukar – Slanke-OS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bricolage+Grotesque:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/auth.css">
+</head>
+<body>
+    <div class="login-page">
+        <header class="login-header">
+            <p class="kicker">Tjukkebollefeiten</p>
+            <p class="tagline">Berre for inviterte. Du veit kven du er.</p>
+        </header>
+
+        <div class="login-card wide">
+            <div class="card-stripe"></div>
+            <div class="card-body">
+                <h1>Start reisa</h1>
+                <p class="login-subtitle">Lag din eigen brukar og byrj å føre vekta. Alt anna enn brukarnamn og passord kan du endre seinare.</p>
+
+                <div id="errorMsg" class="login-error" role="alert" hidden>
+                    <span class="error-icon">!</span>
+                    <span id="errorText"></span>
+                </div>
+
+                <form class="login-form" data-api="/api/registrer">
+                    <div class="field">
+                        <label class="field-label" for="inviteCode">Invitasjonskode</label>
+                        <input id="inviteCode" name="inviteCode" type="text" placeholder="ABCD-EFGH"
+                               autocapitalize="characters" spellcheck="false" required autofocus>
+                    </div>
+
+                    <h2 class="form-section-title">Brukar</h2>
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="field-label" for="username">Brukarnamn</label>
+                            <input id="username" name="username" type="text" autocomplete="username"
+                                   autocapitalize="none" spellcheck="false" minlength="3" maxlength="30"
+                                   pattern="[a-zA-Z0-9._\-]+" required>
+                        </div>
+                        <div class="field">
+                            <label class="field-label" for="password">Passord</label>
+                            <input id="password" name="password" type="password" autocomplete="new-password"
+                                   minlength="8" required>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="displayName">Visningsnamn</label>
+                        <input id="displayName" name="displayName" type="text" maxlength="40"
+                               placeholder="T.d. Svigerfar" required>
+                        <p class="field-hint">Vert brukt i overskrifter og kommentarar: «Svigerfar sitt Slanke-OS».</p>
+                    </div>
+
+                    <h2 class="form-section-title">Reisa</h2>
+                    <div class="field">
+                        <span class="field-label">Kva veg skal vekta?</span>
+                        <div class="choice-group">
+                            <label class="choice">
+                                <input type="radio" name="direction" value="ned" checked>
+                                <div><strong>Ned ↓</strong><span>Eg vil gå ned i vekt</span></div>
+                            </label>
+                            <label class="choice">
+                                <input type="radio" name="direction" value="opp">
+                                <div><strong>Opp ↑</strong><span>Eg vil byggje meg opp</span></div>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="field-row">
+                        <div class="field">
+                            <label class="field-label" for="goalWeight">Målvekt (kg)</label>
+                            <input id="goalWeight" name="goalWeight" type="number" min="20" max="400" step="0.1"
+                                   inputmode="decimal" placeholder="Valfritt">
+                        </div>
+                        <div class="field">
+                            <label class="field-label" for="heightCm">Høgd (cm)</label>
+                            <input id="heightCm" name="heightCm" type="number" min="80" max="250" step="1"
+                                   inputmode="numeric" placeholder="Valfritt, for KMI">
+                        </div>
+                    </div>
+
+                    <button type="submit">Lag brukar →</button>
+                </form>
+
+                <p class="login-alt">Har du allereie ein brukar? <a href="/logg-inn">Logg inn</a></p>
+            </div>
+        </div>
+
+        <footer class="login-footer">Slanke-OS &middot; 2026</footer>
+    </div>
+    <script src="/auth.js"></script>
+</body>
+</html>

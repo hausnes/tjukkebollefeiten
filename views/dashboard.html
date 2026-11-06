@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="nn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <title>Slanke-OS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bricolage+Grotesque:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div class="bg-shape bg-shape-1"></div>
+    <div class="bg-shape bg-shape-2"></div>
+
+    <main class="container">
+        <section class="hero">
+            <div class="hero-top">
+                <p class="kicker" id="kicker">Tjukkebollefeiten</p>
+                <nav class="hero-nav" id="ownerNav" hidden>
+                    <a class="nav-link" href="/innstillingar">Innstillingar</a>
+                    <form method="post" action="/logg-ut">
+                        <button type="submit" class="nav-link">Logg ut</button>
+                    </form>
+                </nav>
+                <span class="badge" id="readonlyBadge" hidden>Berre visning</span>
+            </div>
+            <h1 id="title">Slanke-OS</h1>
+            <p class="lead" id="lead"></p>
+            <div id="motivationBanner" class="motivation-banner" aria-live="polite" hidden></div>
+        </section>
+
+        <section id="entryPanel" class="entry-panel" hidden>
+            <div class="panel-head">
+                <h2>Logg ny måling</h2>
+                <p>Fører du frå papiret? Datoen hoppar automatisk til neste dag som manglar.</p>
+            </div>
+            <div id="entryStatus" class="entry-status" hidden>
+                <span id="entryStatusText"></span>
+                <button type="button" class="mini" id="fillGapButton" hidden></button>
+            </div>
+            <form id="entryForm" class="entry-form">
+                <label>
+                    Dato
+                    <input id="dateInput" name="date" type="date" required>
+                    <small id="dateHint" class="date-hint" aria-live="polite"></small>
+                </label>
+                <label>
+                    Vekt (kg)
+                    <input id="weightInput" name="weight" type="number" min="20" max="400" step="0.1"
+                           inputmode="decimal" required>
+                </label>
+                <button type="submit">Lagre måling</button>
+            </form>
+            <p id="formFeedback" class="form-feedback" aria-live="polite"></p>
+        </section>
+
+        <section id="emptyState" class="empty-state" hidden>
+            <h2>Velkomen om bord!</h2>
+            <p id="emptyText">Her er det ikkje registrert nokon målingar enno.</p>
+        </section>
+
+        <div id="journey" hidden>
+            <section class="stats-grid">
+                <article class="stat-card">
+                    <h2>Startvekt</h2>
+                    <p id="startWeight">–</p>
+                    <small id="startDate"></small>
+                </article>
+                <article class="stat-card">
+                    <h2>Siste vekt</h2>
+                    <p id="latestWeight">–</p>
+                    <small id="latestDate"></small>
+                </article>
+                <article class="stat-card highlight">
+                    <h2>Total endring</h2>
+                    <p id="totalChange">–</p>
+                    <small id="totalDays"></small>
+                </article>
+                <article class="stat-card">
+                    <h2>Snitt per veke</h2>
+                    <p id="weeklyAverage">–</p>
+                    <small>sidan start</small>
+                </article>
+                <article class="stat-card" id="bmiCard" hidden>
+                    <h2>KMI</h2>
+                    <p id="bmiValue">–</p>
+                    <small id="bmiCategory"></small>
+                </article>
+            </section>
+
+            <section class="goal-panel" id="goalPanel" hidden>
+                <div class="panel-head">
+                    <h2>Mot målet</h2>
+                    <p id="goalSummary"></p>
+                </div>
+                <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="goalBar">
+                    <div class="progress-fill" id="goalFill"></div>
+                </div>
+                <div class="progress-labels">
+                    <span id="goalStartLabel"></span>
+                    <span id="goalPercent"></span>
+                    <span id="goalTargetLabel"></span>
+                </div>
+                <p class="goal-eta" id="goalEta"></p>
+            </section>
+
+            <section class="chart-panel">
+                <div class="panel-head">
+                    <h2>Vektkurva</h2>
+                    <p>Dra over grafen for å zoome inn.</p>
+                </div>
+                <div id="weightChart" class="chart" role="img" aria-label="Graf over vektutviklinga"></div>
+            </section>
+
+            <section class="insights-grid">
+                <article class="insight-card win">
+                    <h2>Beste veke</h2>
+                    <p id="bestPeriodText">–</p>
+                </article>
+                <article class="insight-card warning">
+                    <h2>Tøffaste veke</h2>
+                    <p id="worstPeriodText">–</p>
+                </article>
+                <article class="insight-card neutral">
+                    <h2>Dagens dom</h2>
+                    <p id="dailyComment">–</p>
+                </article>
+            </section>
+
+            <section class="chart-panel">
+                <div class="panel-head">
+                    <h2>Daglege hopp</h2>
+                    <p>Kva som skjedde sidan førre måling.</p>
+                </div>
+                <div id="deltaChart" class="chart chart-small" role="img" aria-label="Graf over endring mellom målingar"></div>
+            </section>
+
+            <section class="split-grid">
+                <article class="table-panel">
+                    <div class="panel-head">
+                        <h2>Månad for månad</h2>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>Månad</th><th>Målingar</th><th>Snitt</th><th>Endring</th></tr>
+                            </thead>
+                            <tbody id="monthTable"></tbody>
+                        </table>
+                    </div>
+                </article>
+                <article class="table-panel">
+                    <div class="panel-head">
+                        <h2>Siste målingar</h2>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>Dato</th><th>Vekt</th><th>Endring</th><th class="owner-only"></th></tr>
+                            </thead>
+                            <tbody id="recentTable"></tbody>
+                        </table>
+                    </div>
+                </article>
+            </section>
+        </div>
+
+        <p id="loadError" class="load-error" hidden></p>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/highcharts@11.4.8/highcharts.js"></script>
+    <script src="/app.js"></script>
+</body>
+</html>

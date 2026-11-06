@@ -1,0 +1,6 @@
+#!/bin/sh
+# Snarveg i containeren: «importer <brukarnamn> /data/data.csv».
+# Køyrer alltid som «node», så databasefilene ikkje blir eigde av root.
+cd /app
+if [ "$(id -u)" = "0" ]; then exec su-exec node node scripts/importer-csv.js "$@"; fi
+exec node scripts/importer-csv.js "$@"

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="nn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <title>Delt reise – Slanke-OS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Bricolage+Grotesque:wght@500;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/auth.css">
+</head>
+<body>
+    <div class="login-page">
+        <header class="login-header">
+            <p class="kicker">Tjukkebollefeiten</p>
+            <p class="tagline">Nokon har delt reisa si med deg.</p>
+        </header>
+
+        <div class="login-card">
+            <div class="card-stripe"></div>
+            <div class="card-body">
+                <h1>Delt reise</h1>
+                <p class="login-subtitle">Skriv inn passordet du fekk saman med lenkja for å sjå framgangen.</p>
+
+                <div id="errorMsg" class="login-error" role="alert" hidden>
+                    <span class="error-icon">!</span>
+                    <span id="errorText"></span>
+                </div>
+
+                <form class="login-form" data-api="/api/d/{slug}/tilgang">
+                    <div class="field">
+                        <label class="field-label" for="password">Passord</label>
+                        <input id="password" name="password" type="password" autocomplete="off" required autofocus>
+                    </div>
+                    <button type="submit">Sjå reisa →</button>
+                </form>
+            </div>
+        </div>
+
+        <footer class="login-footer">Slanke-OS &middot; 2026</footer>
+    </div>
+    <script src="/auth.js"></script>
+</body>
+</html>

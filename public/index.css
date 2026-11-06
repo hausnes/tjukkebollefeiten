@@ -24,7 +24,12 @@ body {
 		radial-gradient(circle at 10% 10%, #ffe8a3 0, rgba(255, 232, 163, 0) 45%),
 		radial-gradient(circle at 90% 15%, #b8e1d9 0, rgba(184, 225, 217, 0) 40%),
 		linear-gradient(160deg, #f6f3ea 0%, #f5efe0 45%, #f0e7d2 100%);
+	background-attachment: fixed;
 	min-height: 100vh;
+}
+
+html {
+	overflow-x: clip;
 }
 
 .bg-shape {
@@ -59,12 +64,16 @@ body {
 	width: min(1080px, 92vw);
 	margin: 36px auto 48px;
 	display: grid;
+	grid-template-columns: minmax(0, 1fr);
 	gap: 22px;
 }
 
 .hero,
 .chart-panel,
 .entry-panel,
+.goal-panel,
+.table-panel,
+.empty-state,
 .insight-card,
 .stat-card {
 	background: color-mix(in srgb, var(--surface-strong) 82%, #fff 18%);
@@ -116,7 +125,7 @@ h1 {
 .stats-grid {
 	display: grid;
 	gap: 16px;
-	grid-template-columns: repeat(4, minmax(140px, 1fr));
+	grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
 }
 
 .stat-card {
@@ -141,7 +150,10 @@ h1 {
 }
 
 .chart-panel,
-.entry-panel {
+.entry-panel,
+.goal-panel,
+.table-panel,
+.empty-state {
 	padding: 20px;
 	animation: rise 0.75s ease-out both;
 }
@@ -164,8 +176,13 @@ h1 {
 	font-size: 0.93rem;
 }
 
-canvas {
-	max-height: 360px;
+.chart {
+	width: 100%;
+	min-height: 380px;
+}
+
+.chart-small {
+	min-height: 260px;
 }
 
 .insights-grid {
@@ -206,7 +223,7 @@ canvas {
 	display: grid;
 	gap: 14px;
 	grid-template-columns: repeat(2, minmax(160px, 1fr)) 1fr;
-	align-items: end;
+	align-items: start;
 }
 
 label {
@@ -317,10 +334,268 @@ button.ghost.danger {
 	}
 
 	.stats-grid {
-		grid-template-columns: 1fr;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 12px;
 	}
 
 	.stat-card p {
-		font-size: 1.5rem;
+		font-size: 1.35rem;
+	}
+}
+
+/* ===== Fleirbrukar-tillegg ===== */
+#journey {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 22px;
+}
+
+#journey[hidden],
+[hidden] {
+	display: none !important;
+}
+
+.hero-top {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+.hero-nav {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+.hero-nav form {
+	margin: 0;
+}
+
+.nav-link {
+	display: inline-block;
+	padding: 7px 12px;
+	border-radius: 999px;
+	background: #f1ead8;
+	border: 1px solid #d8c7a4;
+	color: #3a3427;
+	font-weight: 700;
+	font-size: 0.88rem;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.nav-link:hover {
+	filter: brightness(1.04);
+	transform: translateY(-1px);
+}
+
+.badge {
+	padding: 6px 11px;
+	border-radius: 999px;
+	background: rgba(10, 147, 150, 0.12);
+	border: 1px solid rgba(10, 147, 150, 0.35);
+	color: var(--accent);
+	font-weight: 700;
+	font-size: 0.82rem;
+}
+
+.stat-card small {
+	display: block;
+	margin-top: 4px;
+	color: var(--muted);
+	font-size: 0.85rem;
+}
+
+.tone-good {
+	color: #1d7a6f;
+}
+
+.tone-bad {
+	color: var(--warn);
+}
+
+.stat-card.tone-good,
+.stat-card.tone-bad {
+	color: inherit;
+}
+
+.stat-card.tone-good p {
+	color: #1d7a6f;
+}
+
+.stat-card.tone-bad p {
+	color: var(--warn);
+}
+
+.empty-state h2 {
+	margin: 0 0 8px;
+}
+
+.empty-state p {
+	margin: 0;
+	color: var(--muted);
+}
+
+/* Målpanel */
+.progress {
+	height: 18px;
+	border-radius: 999px;
+	background: #efe6d0;
+	border: 1px solid var(--line);
+	overflow: hidden;
+}
+
+.progress-fill {
+	height: 100%;
+	width: 0;
+	border-radius: 999px;
+	background: linear-gradient(90deg, #94d2bd, #0a9396 60%, #005f73);
+	transition: width 0.9s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.progress-labels {
+	display: flex;
+	justify-content: space-between;
+	margin-top: 8px;
+	font-size: 0.88rem;
+	color: var(--muted);
+}
+
+.progress-labels #goalPercent {
+	font-weight: 700;
+	color: var(--accent);
+}
+
+.goal-eta {
+	margin: 12px 0 0;
+	font-weight: 500;
+}
+
+/* Tabellar */
+.split-grid {
+	display: grid;
+	gap: 16px;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.table-scroll {
+	overflow-x: auto;
+}
+
+.data-table {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.94rem;
+}
+
+.data-table th,
+.data-table td {
+	padding: 8px 6px;
+	text-align: left;
+	border-bottom: 1px solid var(--line);
+	white-space: nowrap;
+}
+
+.data-table th {
+	font-size: 0.78rem;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--muted);
+}
+
+.data-table tbody tr:last-child td {
+	border-bottom: none;
+}
+
+.readonly .owner-only {
+	display: none;
+}
+
+.row-actions {
+	text-align: right;
+}
+
+button.mini {
+	padding: 4px 9px;
+	border-radius: 8px;
+	font-size: 0.8rem;
+	background: #f1ead8;
+	color: #3a3427;
+	border: 1px solid #d8c7a4;
+	margin-left: 4px;
+}
+
+button.mini.danger {
+	background: #fce8dd;
+	color: #752800;
+	border-color: #e7b7a0;
+}
+
+.entry-status {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+	margin: 0 0 14px;
+	padding: 10px 13px;
+	border-radius: 12px;
+	background: rgba(10, 147, 150, 0.08);
+	border: 1px dashed rgba(10, 147, 150, 0.35);
+	font-weight: 500;
+}
+
+.entry-status.has-gap {
+	background: rgba(238, 155, 0, 0.12);
+	border-color: rgba(202, 103, 2, 0.45);
+}
+
+.entry-status button.mini {
+	margin-left: 0;
+}
+
+.entry-form > button {
+	margin-top: calc(1.5em + 6px);
+	padding-block: 12px;
+}
+
+@media (max-width: 900px) {
+	.entry-form > button {
+		margin-top: 0;
+	}
+}
+
+.date-hint {
+	min-height: 1.2em;
+	font-size: 0.82rem;
+	font-weight: 500;
+	color: var(--muted);
+}
+
+.date-hint.taken {
+	color: var(--warn);
+}
+
+.form-feedback[data-kind="ok"] {
+	color: #1d7a6f;
+}
+
+.form-feedback[data-kind="error"] {
+	color: var(--warn);
+}
+
+.load-error {
+	padding: 14px 16px;
+	border-radius: 12px;
+	background: #fdeee6;
+	border: 1px solid #e8b59a;
+	color: #9b3200;
+	font-weight: 600;
+}
+
+@media (max-width: 900px) {
+	.split-grid {
+		grid-template-columns: minmax(0, 1fr);
 	}
 }
