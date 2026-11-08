@@ -8,6 +8,23 @@ const COLORS = {
 	good: "rgba(42, 157, 143, 0.85)",
 	bad: "rgba(187, 62, 3, 0.8)",
 	grid: "rgba(34, 32, 24, 0.09)",
+	event: "#6a4c93",
+	headwind: "rgba(202, 103, 2, 0.11)",
+	tailwind: "rgba(42, 157, 143, 0.13)",
+	neutral: "rgba(0, 95, 115, 0.07)",
+};
+
+/** Kategoriar for hendingar. `effect` er standardforslaget for venta effekt på vekta. */
+const EVENT_CATEGORIES = {
+	kos: { emoji: "🍰", label: "Kos og fest", effect: "opp" },
+	drikke: { emoji: "🍺", label: "Drikke og brygg", effect: "opp" },
+	hoytid: { emoji: "🎄", label: "Høgtid og ferie", effect: "opp" },
+	trening: { emoji: "🏃", label: "Trening", effect: "ned" },
+	tur: { emoji: "🏔️", label: "Tur og friluft", effect: "ned" },
+	stress: { emoji: "😩", label: "Stress og travelt", effect: "opp" },
+	sjukdom: { emoji: "🤒", label: "Sjukdom", effect: "ukjend" },
+	kosthald: { emoji: "🥗", label: "Kosthald og vanar", effect: "ned" },
+	anna: { emoji: "📌", label: "Anna", effect: "ukjend" },
 };
 
 const shareSlug = (location.pathname.match(/^\/d\/([^/]+)/) || [])[1];
@@ -17,6 +34,9 @@ const state = {
 	canWrite: false,
 	profile: null,
 	data: [], // [{ date: "YYYY-MM-DD", weight: 93.7, t: <ms UTC> }]
+	events: [], // [{ id, kind: "dag"|"periode", startDate, endDate, category, effect, title, note, private }]
+	showEventBands: true,
+	editingEventId: null,
 	charts: {},
 	editingDate: null, // Dato som vert endra via «Endre»-knappen (då spør vi ikkje om overskriving).
 };
@@ -59,9 +79,13 @@ async function init() {
 		state.canWrite = Boolean(payload.canWrite) && !shareSlug;
 		state.profile = payload.profile;
 		state.data = toEntries(payload.measurements);
+		state.events = payload.events || [];
 
 		renderChrome();
-		if (state.canWrite) bindEntryForm();
+		if (state.canWrite) {
+			bindEntryForm();
+			bindEventForm();
+		}
 		renderAll();
 	} catch (error) {
 		console.error(error);
@@ -155,7 +179,7 @@ function bindEntryForm() {
 		await reload();
 
 		const delta = previous ? roundOne(weight - previous.weight) : null;
-		const comment = delta === null ? "Første måling er i boks!" : makeDailyComment(delta);
+		const comment = delta === null ? "Første måling er i boks!" : makeDailyComment(delta, date);
 		let message;
 		if (result.data.unchanged) {
 			message = `${formatDate(date)} hadde allereie ${formatKg(weight)} – ingenting å endre.`;
@@ -305,6 +329,7 @@ async function reload() {
 	const payload = await res.json();
 	state.profile = payload.profile;
 	state.data = toEntries(payload.measurements);
+	state.events = payload.events || [];
 	renderAll();
 }
 
@@ -338,6 +363,7 @@ function renderAll() {
 	renderInsights();
 	renderWeightChart();
 	renderDeltaChart();
+	renderEvents();
 	renderMonthTable();
 	renderRecentTable();
 }
@@ -421,21 +447,55 @@ function estimateGoalText(goal) {
 		return "Trenden kjem når det er nokre fleire målingar dei siste vekene.";
 	}
 
-	const slopePerDay = linearSlope(recent.map((e) => [(e.t - recent[0].t) / DAY, e.weight]));
-	const weekly = roundOne(slopePerDay * 7);
-	const trendText = `Trenden siste fire veker: ${formatSigned(weekly)} kg/veke.`;
+	const slopePerDay = slopeOf(recent);
+	const trendText = `Trenden siste fire veker: ${formatSigned(roundOne(slopePerDay * 7))} kg/veke.`;
+	return `${trendText} ${goalPaceText(slopePerDay, goal, last)}${headwindForecastText(recent, goal, last)}`;
+}
 
+function goalPaceText(slopePerDay, goal, last) {
 	if (progressOf(slopePerDay) <= 0.001) {
-		return `${trendText} I dette tempoet kjem vi ikkje nærare målet – men ein god veke snur det fort.`;
+		return "I dette tempoet kjem vi ikkje nærare målet – men ein god veke snur det fort.";
 	}
-
 	const daysLeft = Math.abs(goal - last.weight) / Math.abs(slopePerDay);
-	if (daysLeft > 3 * 365) {
-		return `${trendText} I dette tempoet tek det meir enn tre år. Tolmod er ein dygd.`;
+	if (daysLeft > 3 * 365) return "I dette tempoet tek det meir enn tre år. Tolmod er ein dygd.";
+	return `Held det fram slik, er målet nådd rundt ${formatDate(new Date(last.t + daysLeft * DAY))}.`;
+}
+
+/**
+ * Har det vore motvind (hendingar som dreg feil veg) i trendvindauget, reknar vi trenden på nytt
+ * utan dagane hendingane kan ha påverka – og ertar litt, uansett kva svaret vert.
+ */
+function headwindForecastText(recent, goal, last) {
+	const window = [recent[0].date, last.date];
+	const headwinds = state.events.filter((ev) => windOf(ev) < 0 && overlaps(impactRange(ev), window));
+	if (!headwinds.length) return "";
+
+	const names =
+		headwinds.length > 2
+			? `${eventName(headwinds[0])}, ${eventName(headwinds[1])} m.fl.`
+			: headwinds.map(eventName).join(" og ");
+	const clean = recent.filter((m) => !headwinds.some((ev) => inRange(m.date, impactRange(ev))));
+
+	let text;
+	if (clean.length < 5 || daysBetween(clean[0].date, clean[clean.length - 1].date) < 7) {
+		text = ` ${names} pregar så mykje av perioden at prognosen er meir gjetting enn vitskap.`;
+	} else {
+		const adjusted = slopeOf(clean);
+		const adjustedWeekly = formatSigned(roundOne(adjusted * 7));
+		if (progressOf(adjusted) > 0.001) {
+			const daysLeft = Math.abs(goal - last.weight) / Math.abs(adjusted);
+			const when = daysLeft > 3 * 365 ? "om meir enn tre år" : `rundt ${formatDate(new Date(last.t + daysLeft * DAY))}`;
+			text = ` Reknar vi bort ${names}, er trenden ${adjustedWeekly} kg/veke – og målet nådd ${when}. Så no veit du kva som står i vegen.`;
+		} else {
+			text = ` Sjølv om vi reknar bort ${names}, går det feil veg (${adjustedWeekly} kg/veke). Det er altså ikkje berre «${headwinds[0].title}» si skuld.`;
+		}
 	}
 
-	const eta = new Date(last.t + daysLeft * DAY);
-	return `${trendText} Held det fram slik, er målet nådd rundt ${formatDate(eta)}.`;
+	const ending = headwinds.find((ev) => isOngoing(ev) && ev.endDate);
+	const open = headwinds.find((ev) => isOngoing(ev) && !ev.endDate);
+	if (ending) text += ` ${eventName(ending)} varer til ${formatDate(ending.endDate)} – etter det bør kurva rette seg opp. I teorien.`;
+	else if (open) text += ` ${eventName(open)} har inga sluttdato. Det seier eigentleg alt.`;
+	return text;
 }
 
 function renderInsights() {
@@ -444,7 +504,15 @@ function renderInsights() {
 	const name = state.profile.displayName;
 
 	if (best && progressOf(best.delta) > 0) {
-		$("bestPeriodText").textContent = `${formatDate(best.from)}–${formatDate(best.to)}: ${formatKg(Math.abs(best.delta))} ${isDown() ? "ned" : "opp"}. Kongerunde!`;
+		const around = eventsAround(best.from, best.to);
+		const tailwind = around.find((ev) => windOf(ev) > 0);
+		const headwind = around.find((ev) => windOf(ev) < 0);
+		const joke = tailwind
+			? `${eventName(tailwind)} hjelpte nok til.`
+			: headwind
+				? `${headwind.kind === "dag" ? "Rett etter" : "Midt i"} ${eventName(headwind)}! Det er rett og slett frekt.`
+				: "Kongerunde!";
+		$("bestPeriodText").textContent = `${formatDate(best.from)}–${formatDate(best.to)}: ${formatKg(Math.abs(best.delta))} ${isDown() ? "ned" : "opp"}. ${joke}`;
 	} else {
 		$("bestPeriodText").textContent = best
 			? "Ingen veke har gått rett veg enno. Den første kjem snart!"
@@ -452,7 +520,15 @@ function renderInsights() {
 	}
 
 	if (worst && progressOf(worst.delta) < 0) {
-		const joke = isDown() ? "Her var det kanskje helgekos deluxe." : "Her gløymde visst nokon å ete.";
+		const around = eventsAround(worst.from, worst.to);
+		const headwind = around.find((ev) => windOf(ev) < 0);
+		const joke = headwind
+			? `Ikkje rart: ${eventName(headwind)} var i sving.`
+			: around.length
+				? `${eventName(around[0])} kan ha hatt noko med saka å gjere.`
+				: isDown()
+					? "Her var det kanskje helgekos deluxe."
+					: "Her gløymde visst nokon å ete.";
 		$("worstPeriodText").textContent = `${formatDate(worst.from)}–${formatDate(worst.to)}: ${formatKg(Math.abs(worst.delta))} ${isDown() ? "opp" : "ned"}. ${joke}`;
 	} else {
 		$("worstPeriodText").textContent = worst
@@ -462,7 +538,9 @@ function renderInsights() {
 
 	const latestDelta = data.length > 1 ? roundOne(data[data.length - 1].weight - data[data.length - 2].weight) : null;
 	$("dailyComment").textContent =
-		latestDelta === null ? "Første måling er i boks. Dommaren ventar på neste." : makeDailyComment(latestDelta);
+		latestDelta === null
+			? "Første måling er i boks. Dommaren ventar på neste."
+			: makeDailyComment(latestDelta, data[data.length - 1].date);
 
 	$("motivationBanner").textContent = makeMotivationBanner(data);
 }
@@ -554,6 +632,11 @@ function renderWeightChart() {
 		],
 	};
 
+	if (state.events.length) {
+		options.xAxis.plotBands = state.showEventBands ? eventPlotBands(true) : [];
+		options.series.push(eventSeries());
+	}
+
 	if (state.charts.weight) state.charts.weight.destroy();
 	state.charts.weight = Highcharts.chart("weightChart", options);
 }
@@ -571,7 +654,7 @@ function renderDeltaChart() {
 		chart: { type: "column", zooming: { type: "x" }, height: 260 },
 		title: { text: null },
 		legend: { enabled: false },
-		xAxis: { type: "datetime", lineColor: COLORS.grid },
+		xAxis: { type: "datetime", lineColor: COLORS.grid, plotBands: state.showEventBands ? eventPlotBands(false) : [] },
 		yAxis: {
 			title: { text: "kg" },
 			gridLineColor: COLORS.grid,
@@ -680,9 +763,597 @@ function setTone(el, progress) {
 	el.classList.toggle("tone-bad", progress < 0);
 }
 
+// ---------- Hendingar: grunnlag ----------
+
+function categoryOf(ev) {
+	return EVENT_CATEGORIES[ev.category] || EVENT_CATEGORIES.anna;
+}
+
+function eventName(ev) {
+	return `${categoryOf(ev).emoji} ${ev.title}`;
+}
+
+/** Siste dag hendinga gjeld: sluttdatoen, eller i dag for periodar som framleis pågår. */
+function eventEnd(ev) {
+	if (ev.kind === "dag") return ev.startDate;
+	return ev.endDate ?? maxIso(todayIso(), ev.startDate);
+}
+
+function isOngoing(ev) {
+	const today = todayIso();
+	return ev.kind === "periode" && ev.startDate <= today && (!ev.endDate || ev.endDate >= today);
+}
+
+function isPlanned(ev) {
+	return ev.startDate > todayIso();
+}
+
+/** Kva vekta er venta å gjere: +1 opp, −1 ned, 0 veit ikkje. */
+function effectSign(ev) {
+	return ev.effect === "opp" ? 1 : ev.effect === "ned" ? -1 : 0;
+}
+
+/** +1 = medvind (hjelper målet), −1 = motvind, 0 = nøytral. Avheng av om brukaren vil opp eller ned. */
+function windOf(ev) {
+	return Math.sign(progressOf(effectSign(ev))) || 0;
+}
+
+/**
+ * Datoane der hendinga kan ha påverka vekta. Ein stor middag viser seg først dagen etter,
+ * og vatn og salt heng gjerne att nokre dagar.
+ */
+function impactRange(ev) {
+	if (ev.kind === "dag") return [addDays(ev.startDate, 1), addDays(ev.startDate, 3)];
+	return [ev.startDate, addDays(eventEnd(ev), 3)];
+}
+
+/** Den nyaste hendinga som kan forklare målinga på `date`. */
+function eventInPlay(date) {
+	return state.events
+		.filter((ev) => inRange(date, impactRange(ev)) && ev.startDate <= date)
+		.sort((a, b) => (a.startDate < b.startDate ? 1 : -1))[0];
+}
+
+/** Hendingar som verka inn på perioden from–to. */
+function eventsAround(from, to) {
+	return state.events.filter((ev) => overlaps(impactRange(ev), [from, to]));
+}
+
+function measurementsBetween(from, to) {
+	return state.data.filter((e) => e.date >= from && e.date <= to);
+}
+
+function meanWeight(entries) {
+	return entries.length ? entries.reduce((s, e) => s + e.weight, 0) / entries.length : null;
+}
+
+/** Interpolert vekt på eit tidspunkt (for å plassere hendingar på kurva). */
+function weightAtTime(t) {
+	const data = state.data;
+	if (t <= data[0].t) return data[0].weight;
+	const i = data.findIndex((e) => e.t >= t);
+	if (i === -1) return data[data.length - 1].weight;
+	const a = data[i - 1];
+	const b = data[i];
+	return roundOne(a.weight + ((b.weight - a.weight) * (t - a.t)) / (b.t - a.t));
+}
+
+// ---------- Hendingar: analyse ----------
+
+/**
+ * Kva skjedde med vekta rundt hendinga?
+ * Éin dag: største utslag 1–3 dagar etter, samanlikna med siste måling før, og kor fort det gjekk over.
+ * Periode: 7-dagars snitt før start mot snittet på slutten, pluss trenden før og utviklinga etterpå.
+ */
+function analyzeEvent(ev) {
+	if (isPlanned(ev)) return { status: "planned" };
+	if (!state.data.length) return { status: "insufficient" };
+	return ev.kind === "dag" ? analyzeDay(ev) : analyzePeriod(ev);
+}
+
+function analyzeDay(ev) {
+	const pre = measurementsBetween(addDays(ev.startDate, -3), ev.startDate).pop();
+	const post = measurementsBetween(addDays(ev.startDate, 1), addDays(ev.startDate, 3));
+	if (!pre || !post.length) return { status: "insufficient" };
+
+	const sign = effectSign(ev);
+	const score = (e) => (sign ? (e.weight - pre.weight) * sign : Math.abs(e.weight - pre.weight));
+	const peak = post.reduce((best, e) => (score(e) > score(best) ? e : best));
+	const change = roundOne(peak.weight - pre.weight);
+
+	let recoveryDays = null;
+	let recoveryOpen = false;
+	if (Math.abs(change) >= 0.3) {
+		const deadline = addDays(ev.startDate, 14);
+		const back = measurementsBetween(addDays(peak.date, 1), deadline).find(
+			(e) => (e.weight - pre.weight) * Math.sign(change) <= 0.1
+		);
+		if (back) recoveryDays = daysBetween(ev.startDate, back.date);
+		else recoveryOpen = state.data[state.data.length - 1].date < deadline;
+	}
+	return { status: "ok", change, recoveryDays, recoveryOpen };
+}
+
+function analyzePeriod(ev) {
+	const inside = measurementsBetween(ev.startDate, eventEnd(ev));
+	if (inside.length < 2) return { status: "insufficient" };
+
+	const before = measurementsBetween(addDays(ev.startDate, -7), addDays(ev.startDate, -1));
+	const base = before.length ? meanWeight(before) : inside[0].weight;
+	const lastDate = inside[inside.length - 1].date;
+	const endValue = meanWeight(measurementsBetween(maxIso(ev.startDate, addDays(lastDate, -6)), lastDate));
+	const change = roundOne(endValue - base);
+	const days = daysBetween(ev.startDate, lastDate) + 1;
+
+	const trendBefore = measurementsBetween(addDays(ev.startDate, -28), addDays(ev.startDate, -1));
+	const beforeWeekly =
+		trendBefore.length >= 4 && daysBetween(trendBefore[0].date, trendBefore[trendBefore.length - 1].date) >= 7
+			? roundOne(slopeOf(trendBefore) * 7)
+			: null;
+
+	let afterChange = null;
+	let afterDays = null;
+	if (ev.endDate && ev.endDate < todayIso()) {
+		const after = measurementsBetween(addDays(ev.endDate, 1), addDays(ev.endDate, 14));
+		if (after.length >= 2) {
+			afterChange = roundOne(meanWeight(after.slice(-3)) - endValue);
+			afterDays = daysBetween(ev.endDate, after[after.length - 1].date);
+		}
+	}
+
+	return {
+		status: "ok",
+		change,
+		days,
+		weekly: days >= 7 ? roundOne((change / days) * 7) : null,
+		beforeWeekly,
+		afterChange,
+		afterDays,
+	};
+}
+
+function eventStatsText(ev, a) {
+	if (a.status === "planned") return "Planlagt. Vekta aner ikkje kva som kjem.";
+	if (a.status === "insufficient" && isOngoing(ev) && daysBetween(ev.startDate, todayIso()) < 7) {
+		return "Nettopp starta. Dommaren ventar på fleire målingar før dommen fell.";
+	}
+	if (a.status === "insufficient") return "For få målingar rundt hendinga til å seie noko sikkert. Svært praktisk for nokon.";
+
+	if (ev.kind === "dag") {
+		let text = `Utslag dagane etter: ${formatSigned(a.change)} kg.`;
+		if (a.recoveryDays !== null) text += ` Tilbake på utgangspunktet etter ${plural(a.recoveryDays, "dag", "dagar")}.`;
+		else if (a.recoveryOpen) text += " Ikkje heilt tilbake på utgangspunktet enno.";
+		else if (Math.abs(a.change) >= 0.3) text += " Det der vart verande ei stund.";
+		return text;
+	}
+
+	let text = `I perioden: ${formatSigned(a.change)} kg på ${plural(a.days, "dag", "dagar")}`;
+	if (a.weekly !== null) text += ` (${formatSigned(a.weekly)} kg/veke)`;
+	text += ".";
+	if (a.beforeWeekly !== null) text += ` Trenden før: ${formatSigned(a.beforeWeekly)} kg/veke.`;
+	if (a.afterChange !== null) text += ` Etterpå: ${formatSigned(a.afterChange)} kg på ${plural(a.afterDays, "dag", "dagar")}.`;
+	return text;
+}
+
+// ---------- Hendingar: humor ----------
+
+/**
+ * «confirm» = vekta gjorde som venta, «defy» = vekta gjorde det motsette.
+ * {t} = tittel, {kg} = endring med forteikn.
+ */
+const EVENT_JOKES = {
+	kos: {
+		confirm: [
+			"{t} sette spor: {kg}. Det var nok verdt det. Truleg.",
+			"{kg} etter {t}. Kroppen hugsar kvar bete, sjølv om du ikkje gjer det.",
+		],
+		defy: [
+			"{t}, og likevel {kg}? Anten var porsjonane små, eller så er vekta bestukken.",
+			"{t} utan konsekvensar ({kg}). Vitskapen står fast og klør seg i hovudet.",
+		],
+	},
+	drikke: {
+		confirm: [
+			"{t}: {kg}. Flytande kalori er framleis kalori, sjølv når han skummar.",
+			"{kg} under {t}. Skål – vekta skåla tydelegvis med.",
+		],
+		defy: [
+			"{t} og {kg}? Brygg du lettøl, eller drikk andre det for deg?",
+			"Vekta ignorerte {t} fullstendig ({kg}). Mistenkjeleg.",
+		],
+	},
+	hoytid: {
+		confirm: [
+			"{t} gav {kg}. Tradisjonar skal haldast i hevd, også på badevekta.",
+			"{kg} etter {t}. Feriekiloa melde seg til teneste, som venta.",
+		],
+		defy: [
+			"{t} og likevel {kg}. Kven har lært deg sjølvkontroll?",
+			"{t} passerte med {kg}. Dette må granskast av ein uavhengig komité.",
+		],
+	},
+	trening: {
+		confirm: ["{t}: {kg}. Sveitten var ikkje forgjeves.", "{kg} med {t} på laget. Joggeskorne fortener ein klapp."],
+		defy: [
+			"{t}, men {kg}. Musklar, seier du? Sikkert. Heilt sikkert.",
+			"{t} gav {kg}. Belønningsbollen etter økta tel dessverre òg.",
+		],
+	},
+	tur: {
+		confirm: ["{t} gav {kg}. Utsikta var gratis, kiloa betalte du med.", "{kg} etter {t}. Fjellet gir, fjellet tek."],
+		defy: [
+			"{t}, men {kg}. Kvikklunsj-budsjettet vart visst overskride.",
+			"Ein heil {t}, og vekta svarte med {kg}. Turmat er òg mat.",
+		],
+	},
+	stress: {
+		confirm: [
+			"{t}: {kg}. Kontorstolen og kjeksskåla vann denne runden.",
+			"{kg} under {t}. Stress set seg på magen – det er nesten vitskap.",
+		],
+		defy: ["{t}, men {kg}. Stressmagen gjekk visst motsett veg.", "{t} utan trøysteeting ({kg}). Eller gløymde du berre å ete?"],
+	},
+	kosthald: {
+		confirm: ["{t}: {kg}. Salatbladet får endeleg den respekten det fortener.", "{kg} med {t}. Disiplin kler deg."],
+		defy: [
+			"{t}, men {kg}. Kanskje dressinga var hovudretten?",
+			"{t} har enno ikkje imponert vekta ({kg}). Gi det tid – eller sjekk kjøleskapet.",
+		],
+	},
+	sjukdom: {
+		good: ["{t}: {kg}. Ikkje akkurat slankemetoden vi tilrår, men god betring!"],
+		bad: ["{t}: {kg}. Sofaen og suppa gjorde jobben sin. God betring!"],
+	},
+	generic: {
+		good: ["{t}: {kg} i rett retning. Uansett kva det var – meir av det!"],
+		bad: ["{t}: {kg} feil veg. Vi seier ikkje at det var skuld i det, men vi seier heller ikkje at det ikkje var det."],
+	},
+	flat: [
+		"{t} rikka ikkje vekta ({kg}). Anten er du ein maskin, eller så har du ikkje vege deg nok.",
+		"{t} gjekk upåakta hen for vekta ({kg}). Sjølv vekta kjeda seg.",
+	],
+	rebound: " Og etterpå gjekk det attende igjen. Kroppen tilgir, men gløymer ikkje.",
+};
+
+function eventVerdict(ev, a) {
+	if (a.status !== "ok") return "";
+	const sign = effectSign(ev);
+	const jokes = EVENT_JOKES[ev.category];
+
+	let pool;
+	if (Math.abs(a.change) < 0.2) pool = EVENT_JOKES.flat;
+	else if (sign && jokes && jokes.confirm) pool = Math.sign(a.change) === sign ? jokes.confirm : jokes.defy;
+	else {
+		const set = jokes && jokes.good ? jokes : EVENT_JOKES.generic;
+		pool = progressOf(a.change) > 0 ? set.good : set.bad;
+	}
+
+	let text = pick(pool, ev.id).replaceAll("{t}", ev.title).replaceAll("{kg}", `${formatSigned(a.change)} kg`);
+	if (a.afterChange !== null && a.afterChange !== undefined && Math.abs(a.change) >= 0.2 && a.afterChange * Math.sign(a.change) <= -0.3) {
+		text += EVENT_JOKES.rebound;
+	}
+	return text;
+}
+
+/** Dagens dom når ei hending kan forklare den siste målinga. Null = bruk vanleg kommentar. */
+function eventDailyComment(ev, delta) {
+	if (Math.abs(delta) < 0.1) return null;
+	const sign = effectSign(ev);
+	const n = eventName(ev);
+	const s = `${formatSigned(delta)} kg`;
+
+	if (!sign) return `${n} i bakgrunnen og ${s} sidan sist. Vi noterer og dømer seinare.`;
+	if (Math.sign(delta) === sign) {
+		if (ev.kind === "dag") {
+			return sign > 0
+				? `Dagen derpå etter ${n}: ${s}. Mest vatn og salt – det går over på nokre dagar. Truleg.`
+				: `${n} gav utteljing: ${s} sidan sist. Nyt det før kroppen oppdagar det.`;
+		}
+		return sign > 0
+			? `${n} set framleis spor: ${s} sidan sist. Vekta veit nøyaktig kva du driv med.`
+			: `${n} leverer: ${s} sidan sist. Hald fram, dette er ikkje flaks.`;
+	}
+	return sign > 0
+		? `Trass i ${n}: ${s}. Vekta har tydelegvis ikkje fått med seg kva som skjedde.`
+		: `Trass i ${n}: ${s}. Anten er det musklar, eller så var premien etterpå litt for stor.`;
+}
+
+function eventSavedMessage(ev, isNew) {
+	const verb = isNew ? "Registrert" : "Oppdatert";
+	const w = windOf(ev);
+	const tail = w < 0 ? "Vekta er åtvara." : w > 0 ? "Vi ventar spent på resultata." : "Vi held auge med det.";
+	return `${verb}: ${eventName(ev)}. ${tail}`;
+}
+
+// ---------- Hendingar: graf ----------
+
+function eventPlotBands(withLabels) {
+	return state.events
+		.filter((ev) => ev.kind === "periode")
+		.map((ev) => {
+			const w = windOf(ev);
+			const band = {
+				id: `hending-${ev.id}`,
+				from: dateToUtc(ev.startDate),
+				to: dateToUtc(eventEnd(ev)) + DAY,
+				color: w < 0 ? COLORS.headwind : w > 0 ? COLORS.tailwind : COLORS.neutral,
+				zIndex: 0,
+			};
+			if (withLabels) {
+				band.label = {
+					text: escapeHtml(eventName(ev)),
+					align: "left",
+					verticalAlign: "top",
+					x: 4,
+					y: 14,
+					style: { fontSize: "11px", fontWeight: "700", color: "#4a4436" },
+				};
+			}
+			return band;
+		});
+}
+
+function eventSeries() {
+	return {
+		name: "Hendingar",
+		type: "scatter",
+		visible: state.showEventBands,
+		color: COLORS.event,
+		zIndex: 5,
+		stickyTracking: false,
+		marker: { enabled: true, symbol: "circle", radius: 5, fillColor: "#fff", lineWidth: 2, lineColor: COLORS.event },
+		data: state.events.map((ev) => {
+			const x = dateToUtc(ev.startDate);
+			return { x, y: weightAtTime(x), eventId: ev.id };
+		}),
+		dataLabels: {
+			enabled: true,
+			y: -10,
+			formatter() {
+				const ev = state.events.find((e) => e.id === this.point.options.eventId);
+				return ev ? categoryOf(ev).emoji : "";
+			},
+			style: { fontSize: "17px", textOutline: "none" },
+		},
+		tooltip: {
+			headerFormat: "",
+			pointFormatter() {
+				const ev = state.events.find((e) => e.id === this.options.eventId);
+				if (!ev) return "";
+				const note = ev.note ? `<br/><span>${escapeHtml(ev.note)}</span>` : "";
+				return `<b>${escapeHtml(eventName(ev))}</b><br/>${escapeHtml(eventDateText(ev))}${note}`;
+			},
+		},
+		events: {
+			// Skjul/vis dei skraverte periodane saman med markørane.
+			legendItemClick() {
+				state.showEventBands = !this.visible;
+				for (const [chart, labels] of [
+					[state.charts.weight, true],
+					[state.charts.delta, false],
+				]) {
+					if (!chart) continue;
+					for (const band of eventPlotBands(labels)) {
+						chart.xAxis[0].removePlotBand(band.id);
+						if (state.showEventBands) chart.xAxis[0].addPlotBand(band);
+					}
+				}
+			},
+		},
+	};
+}
+
+// ---------- Hendingar: skjema og liste ----------
+
+function bindEventForm() {
+	const form = $("eventForm");
+	const category = $("eventCategory");
+	let effectTouched = false;
+
+	category.replaceChildren(
+		...Object.entries(EVENT_CATEGORIES).map(([key, c]) => {
+			const option = document.createElement("option");
+			option.value = key;
+			option.textContent = `${c.emoji} ${c.label}`;
+			return option;
+		})
+	);
+
+	const syncKind = () => {
+		const isPeriod = form.elements.kind.value === "periode";
+		$("eventEndWrap").hidden = !isPeriod;
+		$("eventStartLabel").textContent = isPeriod ? "Frå" : "Dato";
+	};
+
+	const reset = () => {
+		form.reset();
+		state.editingEventId = null;
+		effectTouched = false;
+		$("eventStart").value = todayIso();
+		$("eventEffect").value = EVENT_CATEGORIES[category.value].effect;
+		$("eventFormSummary").textContent = "+ Registrer hending";
+		$("eventSubmit").textContent = "Lagre hending";
+		syncKind();
+	};
+
+	form.elements.kind.forEach((radio) => radio.addEventListener("change", syncKind));
+	category.addEventListener("change", () => {
+		if (!effectTouched) $("eventEffect").value = EVENT_CATEGORIES[category.value].effect;
+	});
+	$("eventEffect").addEventListener("change", () => {
+		effectTouched = true;
+	});
+	$("eventCancel").addEventListener("click", () => {
+		reset();
+		$("eventFormWrap").open = false;
+		setEventFeedback("");
+	});
+
+	form.addEventListener("submit", async (event) => {
+		event.preventDefault();
+		const body = {
+			kind: form.elements.kind.value,
+			startDate: $("eventStart").value,
+			endDate: $("eventEnd").value || null,
+			category: category.value,
+			effect: $("eventEffect").value,
+			title: $("eventTitle").value,
+			note: $("eventNote").value,
+			private: $("eventPrivate").checked,
+		};
+		const id = state.editingEventId;
+		const result = await sendJson(id ? "PUT" : "POST", id ? `/api/hendingar/${id}` : "/api/hendingar", body);
+		if (!result.ok) {
+			setEventFeedback(result.error, "error");
+			return;
+		}
+		reset();
+		$("eventFormWrap").open = false;
+		await reload();
+		setEventFeedback(eventSavedMessage(result.data.event, !id), "ok");
+	});
+
+	$("eventList").addEventListener("click", async (event) => {
+		const button = event.target.closest("button[data-event-action]");
+		if (!button) return;
+		const ev = state.events.find((e) => e.id === Number(button.dataset.id));
+		if (!ev) return;
+
+		if (button.dataset.eventAction === "edit") {
+			state.editingEventId = ev.id;
+			effectTouched = true;
+			form.elements.kind.value = ev.kind;
+			category.value = ev.category in EVENT_CATEGORIES ? ev.category : "anna";
+			$("eventTitle").value = ev.title;
+			$("eventStart").value = ev.startDate;
+			$("eventEnd").value = ev.endDate || "";
+			$("eventEffect").value = ev.effect;
+			$("eventNote").value = ev.note || "";
+			$("eventPrivate").checked = Boolean(ev.private);
+			$("eventFormSummary").textContent = `Endrar: ${eventName(ev)}`;
+			$("eventSubmit").textContent = "Lagre endringar";
+			syncKind();
+			$("eventFormWrap").open = true;
+			setEventFeedback("");
+			$("eventFormWrap").scrollIntoView({ behavior: "smooth", block: "center" });
+			$("eventTitle").focus();
+		}
+
+		if (button.dataset.eventAction === "delete" && confirm(`Slette hendinga «${ev.title}»?`)) {
+			const result = await sendJson("DELETE", `/api/hendingar/${ev.id}`);
+			if (!result.ok) {
+				setEventFeedback(result.error, "error");
+				return;
+			}
+			if (state.editingEventId === ev.id) reset();
+			await reload();
+			setEventFeedback(`Sletta ${eventName(ev)}. Bevisa er borte – kurva hugsar framleis.`, "ok");
+		}
+	});
+
+	reset();
+}
+
+function setEventFeedback(text, kind = "") {
+	const el = $("eventFeedback");
+	el.textContent = text;
+	el.dataset.kind = kind;
+}
+
+async function sendJson(method, url, body) {
+	try {
+		const res = await fetch(url, {
+			method,
+			headers: { "Content-Type": "application/json", Accept: "application/json" },
+			body: body ? JSON.stringify(body) : undefined,
+		});
+		const data = await res.json().catch(() => ({}));
+		if (res.ok) return { ok: true, data };
+		return { ok: false, error: data.error || "Noko gjekk gale ved lagring." };
+	} catch {
+		return { ok: false, error: "Nettverksfeil. Prøv igjen." };
+	}
+}
+
+function eventDateText(ev) {
+	if (ev.kind === "dag") return formatDate(ev.startDate);
+	if (!ev.endDate) return `${formatDate(ev.startDate)} – pågår`;
+	const days = daysBetween(ev.startDate, ev.endDate) + 1;
+	return `${formatDate(ev.startDate)} – ${formatDate(ev.endDate)} (${plural(days, "dag", "dagar")})`;
+}
+
+function renderEvents() {
+	const panel = $("eventsPanel");
+	panel.hidden = !state.canWrite && !state.events.length;
+	if (panel.hidden) return;
+	$("eventFormWrap").hidden = !state.canWrite;
+
+	const sorted = [...state.events].sort((a, b) => (a.startDate === b.startDate ? b.id - a.id : a.startDate < b.startDate ? 1 : -1));
+	$("eventsEmpty").hidden = sorted.length > 0;
+	$("eventsEmpty").textContent =
+		"Ingen hendingar enno. Har det vore julebord, fjelltur eller ein heimabrygg-batch? Registrer det, så får kurva ei forklaring – eller ei orsaking.";
+	$("eventList").replaceChildren(...sorted.map(eventItem));
+}
+
+function eventItem(ev) {
+	const a = analyzeEvent(ev);
+	const w = windOf(ev);
+	const li = document.createElement("li");
+	li.className = `event-item ${w < 0 ? "headwind" : w > 0 ? "tailwind" : ""}`;
+
+	const emoji = el("div", "event-emoji", categoryOf(ev).emoji);
+	emoji.setAttribute("aria-hidden", "true");
+
+	const body = el("div", "event-body");
+	body.append(el("h3", "", ev.title));
+
+	const meta = el("p", "event-meta");
+	meta.append(el("span", "", eventDateText(ev)), el("span", "", categoryOf(ev).label));
+	const effectLabel = { opp: "Venta: opp ⬆️", ned: "Venta: ned ⬇️", ukjend: "Venta: 🤷" }[ev.effect];
+	if (effectLabel) meta.append(el("span", "", effectLabel));
+	if (isOngoing(ev)) meta.append(el("span", "event-tag live", "Pågår"));
+	if (isPlanned(ev)) meta.append(el("span", "event-tag", "Planlagt"));
+	if (ev.private) meta.append(el("span", "event-tag", "🔒 Privat"));
+	body.append(meta);
+
+	if (ev.note) body.append(el("p", "event-note", ev.note));
+	body.append(el("p", "event-stats", eventStatsText(ev, a)));
+	const verdict = eventVerdict(ev, a);
+	if (verdict) body.append(el("p", "event-verdict", verdict));
+
+	li.append(emoji, body);
+
+	if (state.canWrite) {
+		const actions = el("div", "event-actions");
+		for (const [action, label] of [
+			["edit", "Endre"],
+			["delete", "Slett"],
+		]) {
+			const b = el("button", `mini ${action === "delete" ? "danger" : ""}`, label);
+			b.type = "button";
+			b.dataset.eventAction = action;
+			b.dataset.id = ev.id;
+			actions.append(b);
+		}
+		li.append(actions);
+	}
+	return li;
+}
+
+function el(tag, className, text) {
+	const node = document.createElement(tag);
+	if (className) node.className = className;
+	if (text !== undefined) node.textContent = text;
+	return node;
+}
+
 // ---------- Humor ----------
 
-function makeDailyComment(delta) {
+function makeDailyComment(delta, date) {
+	const ev = date ? eventInPlay(date) : null;
+	const eventComment = ev ? eventDailyComment(ev, delta) : null;
+	if (eventComment) return eventComment;
+
 	const p = progressOf(delta);
 	if (p >= 0.5) return "Sterk dag! Vekta gjekk rett veg, og kaffien smakar ekstra siger.";
 	if (p > 0) return "Litt i rett retning er framleis rett retning. Stødig og smart.";
@@ -715,7 +1386,16 @@ function makeMotivationBanner(data) {
 						`Status: ${formatSigned(total)} kg. Ikkje panikk – Roma vart ikkje bygd på ein dag heller.`,
 					];
 
-	return options[Math.floor(Math.random() * options.length)];
+	// Pågåande hendingar får ein god sjanse til å stele banneret.
+	const eventOptions = state.events.filter(isOngoing).map((ev) => {
+		const day = daysBetween(ev.startDate, todayIso()) + 1;
+		const w = windOf(ev);
+		if (w < 0) return `${eventName(ev)} er inne på dag ${day}. Vekta har sjølvsagt merka det, men vi seier ingenting. Høgt.`;
+		if (w > 0) return `${eventName(ev)} er inne på dag ${day}. Slik byggjer ein vanar – og legender.`;
+		return `${eventName(ev)} pågår (dag ${day}). Vi held auge med kurva.`;
+	});
+	const pool = eventOptions.length && Math.random() < 0.5 ? eventOptions : options;
+	return pool[Math.floor(Math.random() * pool.length)];
 }
 
 // ---------- Hjelparar ----------
@@ -731,6 +1411,11 @@ function movingAverage(data, days) {
 		}
 		return [e.t, roundOne(sum / (i - start + 1))];
 	});
+}
+
+/** Stigningstal i kg per dag for ei liste med målingar. */
+function slopeOf(entries) {
+	return linearSlope(entries.map((e) => [(e.t - entries[0].t) / DAY, e.weight]));
 }
 
 function linearSlope(points) {
@@ -758,6 +1443,34 @@ function addDays(iso, days) {
 function todayIso() {
 	const now = new Date();
 	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function daysBetween(from, to) {
+	return Math.round((dateToUtc(to) - dateToUtc(from)) / DAY);
+}
+
+function maxIso(a, b) {
+	return a > b ? a : b;
+}
+
+function inRange(date, [from, to]) {
+	return date >= from && date <= to;
+}
+
+function overlaps([a1, a2], [b1, b2]) {
+	return a1 <= b2 && b1 <= a2;
+}
+
+function pick(list, seed) {
+	return list[Math.abs(Number(seed) || 0) % list.length];
+}
+
+function plural(n, one, many) {
+	return `${n} ${n === 1 ? one : many}`;
+}
+
+function escapeHtml(text) {
+	return String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }
 
 function clamp(v, min, max) {

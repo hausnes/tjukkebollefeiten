@@ -7,7 +7,7 @@ const session = require("express-session");
 
 const { db, DB_PATH } = require("./src/db");
 const { SqliteSessionStore } = require("./src/session-store");
-const { q, publicProfile, createUserWithInvite } = require("./src/model");
+const { q, publicProfile, publicEvent, createUserWithInvite } = require("./src/model");
 const {
 	hashPassword,
 	verifyPassword,
@@ -135,11 +135,57 @@ function parseProfile(body) {
 	return { value: { displayName, direction, goalWeight: goal.value, heightCm: height.value } };
 }
 
+const EVENT_CATEGORIES = ["kos", "drikke", "hoytid", "trening", "tur", "stress", "sjukdom", "kosthald", "anna"];
+
+function addDaysIso(iso, days) {
+	return new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+}
+
+/** Validerer ei hending. Returnerer { value } eller { error }. */
+function parseEvent(body) {
+	const kind = body.kind === "periode" ? "periode" : body.kind === "dag" ? "dag" : null;
+	if (!kind) return { error: "Vel om hendinga er éin dag eller ein periode." };
+
+	if (!isRealDate(body.startDate)) return { error: "Ugyldig startdato (bruk ÅÅÅÅ-MM-DD)." };
+	const startDate = body.startDate;
+	const today = new Date().toISOString().slice(0, 10);
+	if (startDate > addDaysIso(today, 366)) return { error: "Så langt fram i tid planlegg ingen kos. Maks eitt år." };
+
+	let endDate = null;
+	if (kind === "periode" && body.endDate !== null && body.endDate !== undefined && body.endDate !== "") {
+		if (!isRealDate(body.endDate)) return { error: "Ugyldig sluttdato (bruk ÅÅÅÅ-MM-DD)." };
+		if (body.endDate < startDate) return { error: "Perioden kan ikkje slutte før han byrjar. Tidsreiser er ikkje støtta." };
+		if (body.endDate > addDaysIso(startDate, 731)) return { error: "Ein periode kan vare i maks to år." };
+		endDate = body.endDate;
+	}
+
+	if (!EVENT_CATEGORIES.includes(body.category)) return { error: "Ukjend kategori." };
+	const effect = ["opp", "ned", "ukjend"].includes(body.effect) ? body.effect : null;
+	if (!effect) return { error: "Vel venta effekt på vekta." };
+
+	const title = typeof body.title === "string" ? body.title.trim() : "";
+	if (title.length < 1 || title.length > 80) return { error: "Tittelen må vere mellom 1 og 80 teikn." };
+
+	const note = typeof body.note === "string" ? body.note.trim() : "";
+	if (note.length > 500) return { error: "Notatet kan ha maks 500 teikn." };
+
+	return {
+		value: { kind, startDate, endDate, category: body.category, effect, title, note: note || null, private: body.private === true },
+	};
+}
+
+function eventParams(e) {
+	return [e.kind, e.startDate, e.endDate, e.category, e.effect, e.title, e.note, e.private ? 1 : 0];
+}
+
 function journeyPayload(owner, canWrite) {
+	// Private hendingar vert aldri sende til delingslenkja, heller ikkje når eigaren førehandsviser ho.
+	const events = (canWrite ? q.events : q.publicEvents).all(owner.id).map(publicEvent);
 	return {
 		canWrite,
 		profile: publicProfile(owner),
 		measurements: q.measurements.all(owner.id).map((m) => ({ date: m.date, weight: m.weight })),
+		events: canWrite ? events : events.map(({ private: _, ...rest }) => rest),
 	};
 }
 
@@ -298,6 +344,28 @@ app.put("/api/malingar/:date", requireUserApi, (req, res) => {
 app.delete("/api/malingar/:date", requireUserApi, (req, res) => {
 	const { changes } = q.deleteMeasurement.run(req.user.id, req.params.date);
 	if (!changes) return fail(res, 404, "Fann inga måling for den datoen.");
+	res.json({ ok: true });
+});
+
+app.post("/api/hendingar", requireUserApi, (req, res) => {
+	const parsed = parseEvent(req.body || {});
+	if (parsed.error) return fail(res, 400, parsed.error);
+	const { lastInsertRowid } = q.insertEvent.run(req.user.id, ...eventParams(parsed.value));
+	res.status(201).json({ ok: true, event: publicEvent(q.eventById.get(Number(lastInsertRowid), req.user.id)) });
+});
+
+app.put("/api/hendingar/:id", requireUserApi, (req, res) => {
+	const id = Number(req.params.id);
+	if (!Number.isInteger(id) || !q.eventById.get(id, req.user.id)) return fail(res, 404, "Fann ikkje hendinga.");
+	const parsed = parseEvent(req.body || {});
+	if (parsed.error) return fail(res, 400, parsed.error);
+	q.updateEvent.run(...eventParams(parsed.value), id, req.user.id);
+	res.json({ ok: true, event: publicEvent(q.eventById.get(id, req.user.id)) });
+});
+
+app.delete("/api/hendingar/:id", requireUserApi, (req, res) => {
+	const { changes } = q.deleteEvent.run(Number(req.params.id), req.user.id);
+	if (!changes) return fail(res, 404, "Fann ikkje hendinga.");
 	res.json({ ok: true });
 });
 

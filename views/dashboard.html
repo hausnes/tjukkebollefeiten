@@ -114,6 +114,65 @@
                 <div id="weightChart" class="chart" role="img" aria-label="Graf over vektutviklinga"></div>
             </section>
 
+            <section class="events-panel" id="eventsPanel" hidden>
+                <div class="panel-head">
+                    <h2>Hendingar</h2>
+                    <p id="eventsLead">Det som forklarer kurva – eller i alle fall prøver.</p>
+                </div>
+
+                <details id="eventFormWrap" class="event-form-wrap" hidden>
+                    <summary id="eventFormSummary">+ Registrer hending</summary>
+                    <form id="eventForm" class="event-form">
+                        <fieldset class="segmented">
+                            <legend>Type</legend>
+                            <label><input type="radio" name="kind" value="dag" checked> Éin dag</label>
+                            <label><input type="radio" name="kind" value="periode"> Periode</label>
+                        </fieldset>
+                        <label>
+                            Kategori
+                            <select id="eventCategory" required></select>
+                        </label>
+                        <label class="span-2">
+                            Kva skjedde?
+                            <input id="eventTitle" type="text" maxlength="80" required placeholder="Pinnekjøtt hos svigermor">
+                        </label>
+                        <label>
+                            <span id="eventStartLabel">Dato</span>
+                            <input id="eventStart" type="date" required>
+                        </label>
+                        <label id="eventEndWrap" hidden>
+                            Til og med
+                            <input id="eventEnd" type="date">
+                            <small class="date-hint">Tomt = pågår framleis.</small>
+                        </label>
+                        <label>
+                            Venta effekt på vekta
+                            <select id="eventEffect">
+                                <option value="opp">⬆️ Opp</option>
+                                <option value="ned">⬇️ Ned</option>
+                                <option value="ukjend">🤷 Veit ikkje</option>
+                            </select>
+                        </label>
+                        <label class="span-full">
+                            Notat (valfritt)
+                            <textarea id="eventNote" maxlength="500" rows="2" placeholder="Tre porsjonar og riskrem. Ingen angrar."></textarea>
+                        </label>
+                        <label class="check span-full">
+                            <input id="eventPrivate" type="checkbox">
+                            Privat – vert ikkje vist på delingslenkja
+                        </label>
+                        <div class="event-form-actions span-full">
+                            <button type="submit" id="eventSubmit">Lagre hending</button>
+                            <button type="button" class="ghost" id="eventCancel">Avbryt</button>
+                        </div>
+                    </form>
+                </details>
+                <p id="eventFeedback" class="form-feedback event-feedback" aria-live="polite"></p>
+
+                <ul id="eventList" class="event-list"></ul>
+                <p id="eventsEmpty" class="muted-text" hidden></p>
+            </section>
+
             <section class="insights-grid">
                 <article class="insight-card win">
                     <h2>Beste veke</h2>

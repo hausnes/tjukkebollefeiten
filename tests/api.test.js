@@ -137,3 +137,52 @@ test("ugyldig JSON gir 400, ikkje 500", async () => {
 	});
 	assert.equal(res.status, 400);
 });
+
+test("hendingar: oppretting, validering, eigarskap og privatliv", async () => {
+	const pinnekjott = { kind: "dag", startDate: "2026-01-02", category: "kos", effect: "opp", title: "Pinnekjøtt" };
+	const created = await owner("POST", "/api/hendingar", { ...pinnekjott, endDate: "2026-01-09" });
+	assert.equal(created.status, 201);
+	assert.equal(created.json.event.endDate, null, "éin dag skal ikkje ha sluttdato");
+
+	const brygg = await owner("POST", "/api/hendingar", {
+		kind: "periode", startDate: "2026-01-03", endDate: "", category: "drikke", effect: "opp",
+		title: "Heimabrygg", note: "  IPA  ", private: true,
+	});
+	assert.equal(brygg.status, 201);
+	assert.equal(brygg.json.event.endDate, null, "tom sluttdato = pågår");
+	assert.equal(brygg.json.event.note, "IPA");
+	assert.equal(brygg.json.event.private, true);
+
+	const bad = (patch) => owner("POST", "/api/hendingar", { ...pinnekjott, ...patch });
+	assert.equal((await bad({ kind: "veke" })).status, 400);
+	assert.equal((await bad({ startDate: "2026-02-30" })).status, 400);
+	assert.equal((await bad({ kind: "periode", endDate: "2026-01-01" })).status, 400, "slutt før start");
+	assert.equal((await bad({ category: "øl" })).status, 400);
+	assert.equal((await bad({ effect: "sidelengs" })).status, 400);
+	assert.equal((await bad({ title: "   " })).status, 400);
+	assert.equal((await bad({ title: "x".repeat(81) })).status, 400);
+
+	const id = brygg.json.event.id;
+	const updated = await owner("PUT", `/api/hendingar/${id}`, { ...brygg.json.event, endDate: "2026-01-20" });
+	assert.equal(updated.status, 200);
+	assert.equal(updated.json.event.endDate, "2026-01-20");
+
+	// Andre brukarar kan verken sjå, endre eller slette.
+	assert.deepEqual((await other("GET", "/api/reise")).json.events, []);
+	assert.equal((await other("PUT", `/api/hendingar/${id}`, pinnekjott)).status, 404);
+	assert.equal((await other("DELETE", `/api/hendingar/${id}`)).status, 404);
+	assert.equal((await guest("POST", "/api/hendingar", pinnekjott)).status, 401);
+
+	assert.equal((await owner("GET", "/api/reise")).json.events.length, 2);
+
+	// Delingslenkja skal ikkje få med private hendingar – og ikkje eingong privat-feltet.
+	assert.equal((await guest("POST", `/api${sharePath}/tilgang`, { password: "nytt-passord" })).status, 200);
+	const shared = (await guest("GET", `/api${sharePath}/reise`)).json.events;
+	assert.deepEqual(shared.map((e) => e.title), ["Pinnekjøtt"]);
+	assert.equal("private" in shared[0], false);
+	const preview = (await owner("GET", `/api${sharePath}/reise`)).json.events;
+	assert.equal(preview.length, 1, "eigaren si førehandsvising viser det gjestar ser");
+
+	assert.equal((await owner("DELETE", `/api/hendingar/${id}`)).status, 200);
+	assert.equal((await owner("DELETE", `/api/hendingar/${id}`)).status, 404);
+});

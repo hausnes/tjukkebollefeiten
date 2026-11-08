@@ -25,6 +25,19 @@ const q = {
 	),
 	deleteMeasurement: db.prepare("DELETE FROM measurements WHERE user_id = ? AND date = ?"),
 
+	events: db.prepare("SELECT * FROM events WHERE user_id = ? ORDER BY start_date, id"),
+	publicEvents: db.prepare("SELECT * FROM events WHERE user_id = ? AND private = 0 ORDER BY start_date, id"),
+	eventById: db.prepare("SELECT * FROM events WHERE id = ? AND user_id = ?"),
+	insertEvent: db.prepare(
+		"INSERT INTO events (user_id, kind, start_date, end_date, category, effect, title, note, private) " +
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	),
+	updateEvent: db.prepare(
+		"UPDATE events SET kind = ?, start_date = ?, end_date = ?, category = ?, effect = ?, title = ?, note = ?, private = ? " +
+			"WHERE id = ? AND user_id = ?"
+	),
+	deleteEvent: db.prepare("DELETE FROM events WHERE id = ? AND user_id = ?"),
+
 	inviteByCode: db.prepare("SELECT * FROM invites WHERE code = ?"),
 	useInvite: db.prepare(
 		"UPDATE invites SET used_by = ?, used_at = datetime('now') WHERE code = ? AND used_at IS NULL"
@@ -32,6 +45,20 @@ const q = {
 	insertInvite: db.prepare("INSERT INTO invites (code) VALUES (?)"),
 	openInvites: db.prepare("SELECT code, created_at FROM invites WHERE used_at IS NULL ORDER BY created_at"),
 };
+
+function publicEvent(row) {
+	return {
+		id: row.id,
+		kind: row.kind,
+		startDate: row.start_date,
+		endDate: row.end_date,
+		category: row.category,
+		effect: row.effect,
+		title: row.title,
+		note: row.note,
+		private: Boolean(row.private),
+	};
+}
 
 function publicProfile(user) {
 	return {
@@ -85,4 +112,4 @@ function importMeasurements(userId, rows) {
 	});
 }
 
-module.exports = { q, publicProfile, createUserWithInvite, createUser, importMeasurements };
+module.exports = { q, publicProfile, publicEvent, createUserWithInvite, createUser, importMeasurements };

@@ -46,6 +46,23 @@ const MIGRATIONS = [
 	);
 	CREATE INDEX sessions_expires ON sessions (expires);
 	`,
+	`
+	CREATE TABLE events (
+		id         INTEGER PRIMARY KEY,
+		user_id    INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+		kind       TEXT NOT NULL CHECK (kind IN ('dag', 'periode')),
+		start_date TEXT NOT NULL CHECK (start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+		-- NULL på ein periode betyr at han framleis pågår.
+		end_date   TEXT CHECK (end_date IS NULL OR (kind = 'periode' AND end_date >= start_date)),
+		category   TEXT NOT NULL,
+		effect     TEXT NOT NULL CHECK (effect IN ('opp', 'ned', 'ukjend')),
+		title      TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 80),
+		note       TEXT CHECK (note IS NULL OR length(note) <= 500),
+		private    INTEGER NOT NULL DEFAULT 0 CHECK (private IN (0, 1)),
+		created_at TEXT NOT NULL DEFAULT (datetime('now'))
+	);
+	CREATE INDEX events_user_start ON events (user_id, start_date);
+	`,
 ];
 
 function migrate() {
